@@ -16,31 +16,62 @@ st.set_page_config(page_title="Car Price Prediction App", page_icon=None, layout
 # In[ ]:
 
 
+from sklearn.preprocessing import OneHotEncoder
+
 @st.cache(allow_output_mutation=True)
 def load(scaler_path, ohe_path, model_path):
     sc = joblib.load(scaler_path)
-    ohe = joblib.load(ohe_path)
+    
+    # Load the original training data
+    df = pd.read_csv('data/CarPrice_Assignment.csv')  # Adjust path if needed
+    
+    # Define categorical columns
+    cat_columns = ['fueltype', 'aspiration', 'doornumber', 'carbody', 'drivewheel', 
+                   'enginelocation', 'enginetype', 'cylindernumber', 'fuelsystem']
+    
+    # Recreate the OneHotEncoder with compatible configuration
+    ohe = OneHotEncoder(
+        handle_unknown='ignore'
+    )
+    ohe.fit(df[cat_columns])
+    
     model = joblib.load(model_path)
-    return sc , ohe, model
+    return sc, ohe, model
 
 
 # In[ ]:
 
 
 def inference(row, cols, scaler, ohe, model):
-    df = pd.DataFrame([row], columns = cols)
+    df = pd.DataFrame([row], columns=cols)
     
     numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
     car_num_cols = list(df.select_dtypes(include=numerics).columns)
     df[car_num_cols] = scaler.transform(df[car_num_cols])
     
     car_cat_cols = list(df.select_dtypes(exclude=numerics).columns)
-    car_ohe = ohe.transform(df[car_cat_cols])
-    car_df_ohe = pd.DataFrame(car_ohe, columns = ohe.get_feature_names(input_features = car_cat_cols))
     
+    # Explicitly handle categorical encoding
+    car_ohe_array = []
+    for col in car_cat_cols:
+        # Get unique categories from original encoder
+        categories = ohe.categories_[car_cat_cols.index(col)]
+        
+        # One-hot encode manually
+        col_encoded = pd.DataFrame(index=df.index)
+        for cat in categories:
+            col_encoded[f'{col}_{cat}'] = (df[col] == cat).astype(int)
+        
+        car_ohe_array.append(col_encoded)
+    
+    # Concatenate one-hot encoded columns
+    car_df_ohe = pd.concat(car_ohe_array, axis=1)
+    
+    # Drop original categorical columns and concatenate with encoded columns
     df = df.drop(car_cat_cols, axis=1)
     df = pd.concat([df, car_df_ohe], axis=1)
     
+    # Ensure column order matches training data
     price = model.predict(df)[0]
     
     return price
